@@ -35,6 +35,7 @@ import {
   Building2,
   MoreVertical,
 } from "lucide-react";
+import ExcelOperations from "@/components/employee/ExcelOperations";
 
 type Employee = {
   id: string;
@@ -258,14 +259,7 @@ export default function KaryawanPage() {
           </p>
         </div>
         <div className="flex items-center gap-3">
-          <Button
-            onClick={exportToCSV}
-            variant="outline"
-            className="border-slate-300 dark:border-slate-700"
-          >
-            <Download className="w-4 h-4 mr-2" />
-            Export
-          </Button>
+          <ExcelOperations onImportComplete={loadEmployees} />
           <Button
             onClick={() => {
               setError("");

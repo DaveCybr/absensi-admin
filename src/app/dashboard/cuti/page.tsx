@@ -42,11 +42,13 @@ type LeaveRequest = {
   rejection_reason: string | null;
   created_at: string;
   employees: {
+    id: string;
     name: string;
     email: string;
     department: string | null;
   };
   leave_types: {
+    id: string;
     name: string;
     color: string;
   };
@@ -94,10 +96,18 @@ export default function LeaveRequestsPage() {
     setFilteredRequests(filtered);
   };
 
+  // UPDATE FILE: src/app/dashboard/cuti/page.tsx
+  // FIND handleApprove function and REPLACE with this:
+
   const handleApprove = async (requestId: string) => {
     setIsProcessing(true);
     try {
-      const { error } = await supabase
+      // Get request details
+      const request = requests.find((r) => r.id === requestId);
+      if (!request) throw new Error("Request not found");
+
+      // Update request status
+      const { error: updateError } = await supabase
         .from("leave_requests")
         .update({
           status: "approved",
@@ -105,13 +115,47 @@ export default function LeaveRequestsPage() {
         })
         .eq("id", requestId);
 
-      if (error) throw error;
+      if (updateError) throw updateError;
 
-      // TODO: Update leave balance
+      // Auto-update leave balance
+      const requestYear = new Date(request.start_date).getFullYear();
+
+      // Get current balance
+      const { data: balanceData, error: balanceError } = await supabase
+        .from("leave_balances")
+        .select("*")
+        .eq("employee_id", request.employees.id) // Fix: use employees.id from join
+        .eq("leave_type_id", request.leave_types.id) // Fix: use leave_types.id from join
+        .eq("year", requestYear)
+        .single();
+
+      if (balanceError && balanceError.code !== "PGRST116") {
+        console.error("Error fetching balance:", balanceError);
+      }
+
+      if (balanceData) {
+        // Update used_days
+        const { error: updateBalanceError } = await supabase
+          .from("leave_balances")
+          .update({
+            used_days: balanceData.used_days + request.total_days,
+          })
+          .eq("id", balanceData.id);
+
+        if (updateBalanceError) {
+          console.error("Error updating balance:", updateBalanceError);
+          // Don't throw - request already approved
+        }
+      }
+
       loadRequests();
       setIsDialogOpen(false);
+      alert(
+        `Cuti disetujui! Saldo cuti telah dikurangi ${request.total_days} hari.`,
+      );
     } catch (error) {
       console.error("Error approving:", error);
+      alert("Gagal approve cuti");
     } finally {
       setIsProcessing(false);
     }

@@ -10,6 +10,9 @@ import {
   Calendar,
   AlertCircle,
 } from "lucide-react";
+import AttendanceChart from "@/components/dashboard/AttendanceChart";
+import DepartmentStats from "@/components/dashboard/DepartmentStats";
+// import MonthlyComparison from "@/components/dashboard/MonthlyComparison";
 
 export default async function DashboardPage() {
   const supabase = await createClient();
@@ -72,6 +75,22 @@ export default async function DashboardPage() {
     checkInLastWeek && checkInLastWeek > 0
       ? (((checkInHariIni || 0) - checkInLastWeek) / checkInLastWeek) * 100
       : 0;
+
+  // Get last 7 days attendance for chart
+  const sevenDaysAgo = new Date(today);
+  sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+
+  const { data: last7DaysData } = await supabase
+    .from("attendances")
+    .select("created_at, type")
+    .gte("created_at", sevenDaysAgo.toISOString())
+    .lt("created_at", tomorrow.toISOString());
+
+  // Get department stats
+  const { data: departmentData } = await supabase
+    .from("employees")
+    .select("department")
+    .eq("is_active", true);
 
   // Recent attendance
   const { data: recentAttendance } = await supabase
@@ -192,7 +211,16 @@ export default async function DashboardPage() {
         })}
       </div>
 
-      {/* Recent Activity */}
+      {/* Charts Row */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        {/* Attendance Trend Chart */}
+        <AttendanceChart data={last7DaysData || []} />
+
+        {/* Department Distribution */}
+        <DepartmentStats data={departmentData || []} />
+      </div>
+
+      {/* Recent Activity & Quick Actions */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Recent Attendance */}
         <Card className="bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800">

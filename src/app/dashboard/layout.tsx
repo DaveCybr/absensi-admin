@@ -64,6 +64,11 @@ const navGroups = [
         label: "Saldo Cuti",
         icon: Calendar,
       },
+      {
+        href: "/dashboard/cuti/calendar",
+        label: "Kalender Cuti",
+        icon: Calendar,
+      },
     ],
   },
   {
@@ -145,10 +150,31 @@ export default function DashboardLayout({
               <div className="space-y-1">
                 {group.items.map((item) => {
                   const Icon = item.icon;
-                  const isActive =
-                    pathname === item.href ||
-                    (item.href !== "/dashboard" &&
-                      pathname.startsWith(item.href));
+                  const isActive = (() => {
+                    // Exact match - jika path sama persis
+                    if (pathname === item.href) return true;
+
+                    // Dashboard khusus - tidak match dengan nested routes
+                    if (item.href === "/dashboard") return false;
+
+                    // Untuk parent routes dengan children, hanya match exact
+                    // Ini mencegah /dashboard/shift match dengan /dashboard/shift/schedule
+                    const parentRoutesWithChildren = [
+                      "/dashboard/shift",
+                      "/dashboard/cuti",
+                    ];
+
+                    if (parentRoutesWithChildren.includes(item.href)) {
+                      return pathname === item.href;
+                    }
+
+                    // Untuk routes lain, match jika startsWith + slash
+                    if (pathname.startsWith(item.href + "/")) {
+                      return true;
+                    }
+
+                    return false;
+                  })();
 
                   return (
                     <Link
