@@ -1,12 +1,11 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
+import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   Dialog,
   DialogContent,
@@ -14,28 +13,18 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import {
   Users,
   Plus,
   Search,
-  Upload,
-  Filter,
-  Download,
-  UserCheck,
-  UserX,
   Camera,
-  Mail,
-  Briefcase,
-  Building2,
-  MoreVertical,
+  CheckCircle,
+  XCircle,
+  AlertCircle,
+  Clock,
+  TrendingUp,
 } from "lucide-react";
 import ExcelOperations from "@/components/employee/ExcelOperations";
+import { Label } from "@/components/ui/label";
 
 type Employee = {
   id: string;
@@ -44,35 +33,44 @@ type Employee = {
   department: string | null;
   position: string | null;
   is_active: boolean;
-  face_image_url: string | null;
+  is_face_enrolled: boolean;
+  face_enrolled_at: string | null;
   created_at: string;
 };
 
-export default function KaryawanPage() {
+type FaceVerificationLog = {
+  id: string;
+  similarity_score: number;
+  is_match: boolean;
+  created_at: string;
+};
+
+export default function EmployeePage() {
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [filteredEmployees, setFilteredEmployees] = useState<Employee[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [searchQuery, setSearchQuery] = useState("");
+
+  // Dialog states
   const [isDialogOpen, setIsDialogOpen] = useState(false);
-  const [isUploadDialogOpen, setIsUploadDialogOpen] = useState(false);
+  const [isViewStatsDialogOpen, setIsViewStatsDialogOpen] = useState(false);
   const [selectedEmployee, setSelectedEmployee] = useState<Employee | null>(
     null,
   );
-  const [isSubmitting, setIsSubmitting] = useState(false);
-  const [isUploading, setIsUploading] = useState(false);
-  const [search, setSearch] = useState("");
-  const [filterDepartment, setFilterDepartment] = useState("all");
-  const [filterStatus, setFilterStatus] = useState("all");
-  const [form, setForm] = useState({
+  const [verificationLogs, setVerificationLogs] = useState<
+    FaceVerificationLog[]
+  >([]);
+  const [isLoadingLogs, setIsLoadingLogs] = useState(false);
+
+  // Form state for adding employee
+  const [formData, setFormData] = useState({
     name: "",
     email: "",
     password: "",
     department: "",
     position: "",
   });
-  const [error, setError] = useState("");
-  const [uploadError, setUploadError] = useState("");
-  const [uploadSuccess, setUploadSuccess] = useState(false);
-  const fileInputRef = useRef<HTMLInputElement>(null);
+
   const supabase = createClient();
 
   useEffect(() => {
@@ -80,8 +78,8 @@ export default function KaryawanPage() {
   }, []);
 
   useEffect(() => {
-    applyFilters();
-  }, [employees, search, filterDepartment, filterStatus]);
+    filterEmployees();
+  }, [searchQuery, employees]);
 
   const loadEmployees = async () => {
     setIsLoading(true);
@@ -89,611 +87,599 @@ export default function KaryawanPage() {
       .from("employees")
       .select("*")
       .order("created_at", { ascending: false });
-    setEmployees(data ?? []);
+
+    setEmployees(data || []);
     setIsLoading(false);
   };
 
-  const applyFilters = () => {
-    let filtered = [...employees];
-
-    // Search filter
-    if (search) {
-      filtered = filtered.filter(
-        (e) =>
-          e.name.toLowerCase().includes(search.toLowerCase()) ||
-          e.email.toLowerCase().includes(search.toLowerCase()),
-      );
+  const filterEmployees = () => {
+    if (!searchQuery.trim()) {
+      setFilteredEmployees(employees);
+      return;
     }
 
-    // Department filter
-    if (filterDepartment !== "all") {
-      filtered = filtered.filter((e) => e.department === filterDepartment);
-    }
-
-    // Status filter
-    if (filterStatus !== "all") {
-      filtered = filtered.filter(
-        (e) => e.is_active === (filterStatus === "active"),
-      );
-    }
-
+    const query = searchQuery.toLowerCase();
+    const filtered = employees.filter(
+      (emp) =>
+        emp.name.toLowerCase().includes(query) ||
+        emp.email.toLowerCase().includes(query) ||
+        emp.department?.toLowerCase().includes(query) ||
+        emp.position?.toLowerCase().includes(query),
+    );
     setFilteredEmployees(filtered);
   };
 
-  const handleTambah = async () => {
-    if (!form.name || !form.email || !form.password) {
-      setError("Nama, email, dan password wajib diisi");
+  // ============================================
+  // VIEW FACE STATS
+  // ============================================
+  const handleViewFaceStats = async (employee: Employee) => {
+    setSelectedEmployee(employee);
+    setIsViewStatsDialogOpen(true);
+    setIsLoadingLogs(true);
+
+    try {
+      // Load verification logs for this employee
+      const { data } = await supabase
+        .from("face_verification_logs")
+        .select("*")
+        .eq("employee_id", employee.id)
+        .order("created_at", { ascending: false })
+        .limit(10);
+
+      setVerificationLogs(data || []);
+    } catch (error) {
+      console.error("Error loading logs:", error);
+    } finally {
+      setIsLoadingLogs(false);
+    }
+  };
+
+  const handleSave = async () => {
+    // Validation
+    if (!formData.name || !formData.email || !formData.password) {
+      alert("Nama, Email, dan Password wajib diisi!");
       return;
     }
 
-    setIsSubmitting(true);
-    setError("");
+    if (formData.password.length < 6) {
+      alert("Password minimal 6 karakter!");
+      return;
+    }
 
     try {
-      const res = await fetch("/api/employees/create", {
+      // Call API to create employee
+      const response = await fetch("/api/employees/create", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(form),
+        body: JSON.stringify(formData),
       });
 
-      const data = await res.json();
-      if (!data.success) throw new Error(data.message);
+      const result = await response.json();
 
-      setIsDialogOpen(false);
-      setForm({
-        name: "",
-        email: "",
-        password: "",
-        department: "",
-        position: "",
-      });
-      loadEmployees();
-    } catch (e: any) {
-      setError(e.message ?? "Gagal menambah karyawan");
-    } finally {
-      setIsSubmitting(false);
+      if (result.success) {
+        alert("✅ Karyawan berhasil ditambahkan!");
+        setIsDialogOpen(false);
+        setFormData({
+          name: "",
+          email: "",
+          password: "",
+          department: "",
+          position: "",
+        });
+        loadEmployees(); // Reload list
+      } else {
+        alert("❌ " + (result.error || "Gagal menambahkan karyawan"));
+      }
+    } catch (error: any) {
+      alert("❌ Error: " + error.message);
     }
   };
 
-  const handleToggleActive = async (id: string, currentStatus: boolean) => {
-    await supabase
-      .from("employees")
-      .update({ is_active: !currentStatus })
-      .eq("id", id);
-    loadEmployees();
+  const stats = {
+    total: employees.length,
+    active: employees.filter((e) => e.is_active).length,
+    inactive: employees.filter((e) => !e.is_active).length,
+    faceEnrolled: employees.filter((e) => e.is_face_enrolled).length,
+    pendingEnrollment: employees.filter(
+      (e) => e.is_active && !e.is_face_enrolled,
+    ).length,
   };
-
-  const handleUploadFace = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (!selectedEmployee || !e.target.files?.[0]) return;
-
-    const file = e.target.files[0];
-
-    if (!file.type.startsWith("image/")) {
-      setUploadError("File harus berupa gambar");
-      return;
-    }
-
-    if (file.size > 2 * 1024 * 1024) {
-      setUploadError("Ukuran file maksimal 2MB");
-      return;
-    }
-
-    setIsUploading(true);
-    setUploadError("");
-    setUploadSuccess(false);
-
-    try {
-      const filePath = `${selectedEmployee.id}.jpg`;
-
-      const { error: uploadError } = await supabase.storage
-        .from("face-references")
-        .upload(filePath, file, { upsert: true });
-
-      if (uploadError) throw uploadError;
-
-      const { data: urlData } = supabase.storage
-        .from("face-references")
-        .getPublicUrl(filePath);
-
-      await supabase
-        .from("employees")
-        .update({ face_image_url: urlData.publicUrl })
-        .eq("id", selectedEmployee.id);
-
-      setUploadSuccess(true);
-      loadEmployees();
-    } catch (e: any) {
-      setUploadError(e.message ?? "Gagal upload foto");
-    } finally {
-      setIsUploading(false);
-    }
-  };
-
-  const openUploadDialog = (employee: Employee) => {
-    setSelectedEmployee(employee);
-    setUploadError("");
-    setUploadSuccess(false);
-    setIsUploadDialogOpen(true);
-  };
-
-  const exportToCSV = () => {
-    const headers = ["Nama", "Email", "Department", "Position", "Status"];
-    const rows = filteredEmployees.map((e) => [
-      e.name,
-      e.email,
-      e.department || "",
-      e.position || "",
-      e.is_active ? "Aktif" : "Nonaktif",
-    ]);
-
-    const csv = [headers, ...rows].map((row) => row.join(",")).join("\n");
-    const blob = new Blob([csv], { type: "text/csv" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `karyawan_${new Date().toISOString().split("T")[0]}.csv`;
-    a.click();
-  };
-
-  // Get unique departments
-  const departments = Array.from(
-    new Set(employees.map((e) => e.department).filter(Boolean)),
-  );
-
-  // Stats
-  const totalActive = employees.filter((e) => e.is_active).length;
-  const totalInactive = employees.filter((e) => !e.is_active).length;
-  const withFace = employees.filter((e) => e.face_image_url).length;
-  const withoutFace = employees.filter((e) => !e.face_image_url).length;
 
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-3xl font-bold text-slate-900 dark:text-white">
-            Manajemen Karyawan
-          </h1>
-          <p className="text-slate-600 dark:text-slate-400 mt-1">
-            Kelola data karyawan dan registrasi wajah
-          </p>
-        </div>
-        <div className="flex items-center gap-3">
-          <ExcelOperations onImportComplete={loadEmployees} />
-          <Button
-            onClick={() => {
-              setError("");
-              setIsDialogOpen(true);
-            }}
-            className="bg-indigo-600 hover:bg-indigo-700"
-          >
-            <Plus className="w-4 h-4 mr-2" />
-            Tambah Karyawan
-          </Button>
-        </div>
+      <div>
+        <h1 className="text-3xl font-bold text-slate-900 dark:text-white">
+          Manajemen Karyawan
+        </h1>
+        <p className="text-slate-600 dark:text-slate-400 mt-1">
+          Monitor status karyawan dan pendaftaran face recognition
+        </p>
       </div>
 
-      {/* Stats */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
-        <Card className="bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800">
-          <CardContent className="p-6">
+      {/* Stats Cards */}
+      <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
+        <Card className="bg-gradient-to-br from-blue-50 to-blue-100 dark:from-blue-950 dark:to-blue-900 border-blue-200 dark:border-blue-800">
+          <CardContent className="p-4">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm text-slate-600 dark:text-slate-400">
+                <p className="text-sm text-blue-600 dark:text-blue-400 font-medium">
                   Total Karyawan
                 </p>
-                <p className="text-3xl font-bold text-slate-900 dark:text-white mt-1">
-                  {employees.length}
+                <p className="text-2xl font-bold text-blue-900 dark:text-blue-100">
+                  {stats.total}
                 </p>
               </div>
-              <div className="w-12 h-12 rounded-xl bg-blue-100 dark:bg-blue-950 flex items-center justify-center">
-                <Users className="w-6 h-6 text-blue-600 dark:text-blue-400" />
-              </div>
+              <Users className="w-8 h-8 text-blue-600 dark:text-blue-400" />
             </div>
           </CardContent>
         </Card>
 
-        <Card className="bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800">
-          <CardContent className="p-6">
+        <Card className="bg-gradient-to-br from-green-50 to-green-100 dark:from-green-950 dark:to-green-900 border-green-200 dark:border-green-800">
+          <CardContent className="p-4">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm text-slate-600 dark:text-slate-400">
-                  Aktif
+                <p className="text-sm text-green-600 dark:text-green-400 font-medium">
+                  Karyawan Aktif
                 </p>
-                <p className="text-3xl font-bold text-green-600 dark:text-green-400 mt-1">
-                  {totalActive}
+                <p className="text-2xl font-bold text-green-900 dark:text-green-100">
+                  {stats.active}
                 </p>
               </div>
-              <div className="w-12 h-12 rounded-xl bg-green-100 dark:bg-green-950 flex items-center justify-center">
-                <UserCheck className="w-6 h-6 text-green-600 dark:text-green-400" />
-              </div>
+              <CheckCircle className="w-8 h-8 text-green-600 dark:text-green-400" />
             </div>
           </CardContent>
         </Card>
 
-        <Card className="bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800">
-          <CardContent className="p-6">
+        <Card className="bg-gradient-to-br from-red-50 to-red-100 dark:from-red-950 dark:to-red-900 border-red-200 dark:border-red-800">
+          <CardContent className="p-4">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm text-slate-600 dark:text-slate-400">
+                <p className="text-sm text-red-600 dark:text-red-400 font-medium">
                   Nonaktif
                 </p>
-                <p className="text-3xl font-bold text-red-600 dark:text-red-400 mt-1">
-                  {totalInactive}
+                <p className="text-2xl font-bold text-red-900 dark:text-red-100">
+                  {stats.inactive}
                 </p>
               </div>
-              <div className="w-12 h-12 rounded-xl bg-red-100 dark:bg-red-950 flex items-center justify-center">
-                <UserX className="w-6 h-6 text-red-600 dark:text-red-400" />
-              </div>
+              <XCircle className="w-8 h-8 text-red-600 dark:text-red-400" />
             </div>
           </CardContent>
         </Card>
 
-        <Card className="bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800">
-          <CardContent className="p-6">
+        <Card className="bg-gradient-to-br from-purple-50 to-purple-100 dark:from-purple-950 dark:to-purple-900 border-purple-200 dark:border-purple-800">
+          <CardContent className="p-4">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm text-slate-600 dark:text-slate-400">
-                  Dengan Foto Wajah
+                <p className="text-sm text-purple-600 dark:text-purple-400 font-medium">
+                  Face Registered
                 </p>
-                <p className="text-3xl font-bold text-indigo-600 dark:text-indigo-400 mt-1">
-                  {withFace}
+                <p className="text-2xl font-bold text-purple-900 dark:text-purple-100">
+                  {stats.faceEnrolled}
+                </p>
+                <p className="text-xs text-purple-600 dark:text-purple-400 mt-1">
+                  {stats.total > 0
+                    ? Math.round((stats.faceEnrolled / stats.total) * 100)
+                    : 0}
+                  % completion
                 </p>
               </div>
-              <div className="w-12 h-12 rounded-xl bg-indigo-100 dark:bg-indigo-950 flex items-center justify-center">
-                <Camera className="w-6 h-6 text-indigo-600 dark:text-indigo-400" />
+              <Camera className="w-8 h-8 text-purple-600 dark:text-purple-400" />
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card className="bg-gradient-to-br from-orange-50 to-orange-100 dark:from-orange-950 dark:to-orange-900 border-orange-200 dark:border-orange-800">
+          <CardContent className="p-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm text-orange-600 dark:text-orange-400 font-medium">
+                  Pending Register
+                </p>
+                <p className="text-2xl font-bold text-orange-900 dark:text-orange-100">
+                  {stats.pendingEnrollment}
+                </p>
+                <p className="text-xs text-orange-600 dark:text-orange-400 mt-1">
+                  Perlu daftar wajah
+                </p>
               </div>
+              <AlertCircle className="w-8 h-8 text-orange-600 dark:text-orange-400" />
             </div>
           </CardContent>
         </Card>
       </div>
 
-      {/* Filters */}
+      {/* Info Alert */}
+      <Card className="bg-blue-50 dark:bg-blue-950 border-2 border-blue-200 dark:border-blue-800">
+        <CardContent className="p-4">
+          <div className="flex items-start gap-3">
+            <AlertCircle className="w-5 h-5 text-blue-600 dark:text-blue-400 shrink-0 mt-0.5" />
+            <div className="text-sm text-blue-700 dark:text-blue-300">
+              <p className="font-semibold mb-1">
+                📱 Face Registration via Mobile App
+              </p>
+              <p>
+                Karyawan harus mendaftar wajah mereka sendiri melalui{" "}
+                <strong>Mobile App</strong>. Admin hanya dapat melihat status
+                enrollment dan statistik verifikasi.
+              </p>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Actions Bar */}
       <Card className="bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800">
-        <CardContent className="p-6">
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-            {/* Search */}
-            <div className="md:col-span-2">
+        <CardContent className="p-4">
+          <div className="flex items-center justify-between gap-4">
+            <div className="flex-1 max-w-md">
               <div className="relative">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400" />
                 <Input
-                  placeholder="Cari nama atau email..."
-                  value={search}
-                  onChange={(e) => setSearch(e.target.value)}
+                  type="text"
+                  placeholder="Cari nama, email, department..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
                   className="pl-10 bg-slate-50 dark:bg-slate-800 border-slate-300 dark:border-slate-700"
                 />
               </div>
             </div>
 
-            {/* Department Filter */}
-            <Select
-              value={filterDepartment}
-              onValueChange={setFilterDepartment}
-            >
-              <SelectTrigger className="bg-slate-50 dark:bg-slate-800 border-slate-300 dark:border-slate-700">
-                <SelectValue placeholder="Semua Department" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">Semua Department</SelectItem>
-                {departments.map((dept) => (
-                  <SelectItem key={dept} value={dept!}>
-                    {dept}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-
-            {/* Status Filter */}
-            <Select value={filterStatus} onValueChange={setFilterStatus}>
-              <SelectTrigger className="bg-slate-50 dark:bg-slate-800 border-slate-300 dark:border-slate-700">
-                <SelectValue placeholder="Semua Status" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">Semua Status</SelectItem>
-                <SelectItem value="active">Aktif</SelectItem>
-                <SelectItem value="inactive">Nonaktif</SelectItem>
-              </SelectContent>
-            </Select>
+            <div className="flex items-center gap-3">
+              <ExcelOperations onImportComplete={loadEmployees} />
+              <Button
+                onClick={() => setIsDialogOpen(true)}
+                className="bg-indigo-600 hover:bg-indigo-700"
+              >
+                <Plus className="w-4 h-4 mr-2" />
+                Tambah Karyawan
+              </Button>
+            </div>
           </div>
         </CardContent>
       </Card>
 
-      {/* Employee List */}
-      <Card className="bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800">
-        <CardHeader className="border-b border-slate-200 dark:border-slate-800">
-          <CardTitle className="text-lg font-semibold text-slate-900 dark:text-white">
-            Daftar Karyawan ({filteredEmployees.length})
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="p-6">
-          {isLoading ? (
-            <div className="text-center py-12 text-slate-500 dark:text-slate-400">
-              Memuat...
+      {/* Employee Grid */}
+      {isLoading ? (
+        <Card className="bg-white dark:bg-slate-900">
+          <CardContent className="p-12">
+            <div className="text-center">
+              <div className="inline-block animate-spin rounded-full h-12 w-12 border-4 border-indigo-600 border-t-transparent"></div>
+              <p className="mt-4 text-slate-500">Memuat data...</p>
             </div>
-          ) : filteredEmployees.length === 0 ? (
-            <div className="text-center py-12 text-slate-500 dark:text-slate-400">
-              Tidak ada karyawan
-            </div>
-          ) : (
-            <div className="grid gap-4">
-              {filteredEmployees.map((emp) => (
-                <div
-                  key={emp.id}
-                  className="flex items-center gap-4 p-4 rounded-lg border border-slate-200 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors"
-                >
-                  {/* Avatar */}
-                  <div className="relative shrink-0">
-                    {emp.face_image_url ? (
-                      <img
-                        src={emp.face_image_url}
-                        alt={emp.name}
-                        className="w-14 h-14 rounded-full object-cover border-2 border-slate-200 dark:border-slate-700"
-                      />
-                    ) : (
-                      <div className="w-14 h-14 rounded-full bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center text-white font-bold text-lg">
-                        {emp.name.charAt(0).toUpperCase()}
-                      </div>
-                    )}
-                    <div
-                      className={`absolute -bottom-1 -right-1 w-4 h-4 rounded-full border-2 border-white dark:border-slate-900 ${
-                        emp.face_image_url ? "bg-green-500" : "bg-red-500"
-                      }`}
-                    />
+          </CardContent>
+        </Card>
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          {filteredEmployees.map((employee) => (
+            <Card
+              key={employee.id}
+              className="bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 hover:shadow-lg transition-shadow"
+            >
+              <CardContent className="p-6">
+                {/* Employee Header */}
+                <div className="flex items-start gap-4 mb-4">
+                  <div className="w-16 h-16 rounded-full bg-gradient-to-br from-indigo-400 to-indigo-600 flex items-center justify-center text-white font-bold text-xl shrink-0">
+                    {employee.name.charAt(0).toUpperCase()}
                   </div>
-
-                  {/* Info */}
                   <div className="flex-1 min-w-0">
-                    <p className="font-semibold text-slate-900 dark:text-white truncate">
-                      {emp.name}
+                    <h3 className="font-bold text-slate-900 dark:text-white truncate">
+                      {employee.name}
+                    </h3>
+                    <p className="text-sm text-slate-500 dark:text-slate-400 truncate">
+                      {employee.email}
                     </p>
-                    <div className="flex items-center gap-4 mt-1 text-sm text-slate-500 dark:text-slate-400">
-                      <span className="flex items-center gap-1">
-                        <Mail className="w-3 h-3" />
-                        {emp.email}
-                      </span>
-                      {emp.department && (
-                        <span className="flex items-center gap-1">
-                          <Building2 className="w-3 h-3" />
-                          {emp.department}
-                        </span>
-                      )}
-                      {emp.position && (
-                        <span className="flex items-center gap-1">
-                          <Briefcase className="w-3 h-3" />
-                          {emp.position}
-                        </span>
+                    <div className="flex items-center gap-2 mt-2 flex-wrap">
+                      <Badge
+                        className={
+                          employee.is_active
+                            ? "bg-green-100 text-green-700 border-green-300"
+                            : "bg-red-100 text-red-700 border-red-300"
+                        }
+                      >
+                        {employee.is_active ? "Aktif" : "Nonaktif"}
+                      </Badge>
+                      {employee.is_face_enrolled ? (
+                        <Badge className="bg-purple-100 text-purple-700 border-purple-300">
+                          <CheckCircle className="w-3 h-3 mr-1" />
+                          Face Registered
+                        </Badge>
+                      ) : (
+                        <Badge className="bg-orange-100 text-orange-700 border-orange-300">
+                          <Clock className="w-3 h-3 mr-1" />
+                          Pending Registration
+                        </Badge>
                       )}
                     </div>
                   </div>
-
-                  {/* Badges & Actions */}
-                  <div className="flex items-center gap-3 shrink-0">
-                    <Badge
-                      className={
-                        emp.face_image_url
-                          ? "bg-green-100 dark:bg-green-950 text-green-700 dark:text-green-300 border-0"
-                          : "bg-red-100 dark:bg-red-950 text-red-700 dark:text-red-300 border-0"
-                      }
-                    >
-                      {emp.face_image_url ? "📷 Ada" : "📷 Belum"}
-                    </Badge>
-
-                    <Badge
-                      className={
-                        emp.is_active
-                          ? "bg-green-100 dark:bg-green-950 text-green-700 dark:text-green-300 border-0"
-                          : "bg-red-100 dark:bg-red-950 text-red-700 dark:text-red-300 border-0"
-                      }
-                    >
-                      {emp.is_active ? "Aktif" : "Nonaktif"}
-                    </Badge>
-
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      onClick={() => openUploadDialog(emp)}
-                      className="border-slate-300 dark:border-slate-700"
-                    >
-                      <Upload className="w-3 h-3 mr-1" />
-                      Upload Foto
-                    </Button>
-
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      onClick={() => handleToggleActive(emp.id, emp.is_active)}
-                      className={
-                        emp.is_active
-                          ? "border-red-300 dark:border-red-700 text-red-600 dark:text-red-400"
-                          : "border-green-300 dark:border-green-700 text-green-600 dark:text-green-400"
-                      }
-                    >
-                      {emp.is_active ? "Nonaktifkan" : "Aktifkan"}
-                    </Button>
-                  </div>
                 </div>
-              ))}
-            </div>
-          )}
-        </CardContent>
-      </Card>
 
-      {/* Dialog Tambah Karyawan */}
-      <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
-        <DialogContent className="bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 max-w-md">
+                {/* Employee Details */}
+                <div className="space-y-2 mb-4 text-sm">
+                  <div className="flex items-center gap-2 text-slate-600 dark:text-slate-400">
+                    <span className="font-medium">Department:</span>
+                    <span>{employee.department || "-"}</span>
+                  </div>
+                  <div className="flex items-center gap-2 text-slate-600 dark:text-slate-400">
+                    <span className="font-medium">Position:</span>
+                    <span>{employee.position || "-"}</span>
+                  </div>
+                  {employee.face_enrolled_at && (
+                    <div className="flex items-center gap-2 text-slate-600 dark:text-slate-400">
+                      <span className="font-medium">Registered:</span>
+                      <span className="text-xs">
+                        {new Date(employee.face_enrolled_at).toLocaleDateString(
+                          "id-ID",
+                        )}
+                      </span>
+                    </div>
+                  )}
+                </div>
+
+                {/* Actions */}
+                {employee.is_face_enrolled && (
+                  <Button
+                    onClick={() => handleViewFaceStats(employee)}
+                    variant="outline"
+                    size="sm"
+                    className="w-full border-indigo-300 text-indigo-700 hover:bg-indigo-50"
+                  >
+                    <TrendingUp className="w-4 h-4 mr-2" />
+                    View Verification Stats
+                  </Button>
+                )}
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+      )}
+
+      {/* View Face Stats Dialog */}
+      <Dialog
+        open={isViewStatsDialogOpen}
+        onOpenChange={setIsViewStatsDialogOpen}
+      >
+        <DialogContent className="bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 max-w-2xl max-h-[80vh] overflow-y-auto">
           <DialogHeader>
-            <DialogTitle className="text-slate-900 dark:text-white">
-              Tambah Karyawan
+            <DialogTitle className="text-slate-900 dark:text-white flex items-center gap-2">
+              <TrendingUp className="w-6 h-6 text-indigo-600" />
+              Face Verification Statistics
             </DialogTitle>
           </DialogHeader>
+
           <div className="space-y-4 mt-4">
-            {error && (
-              <div className="bg-red-50 dark:bg-red-950 border border-red-200 dark:border-red-800 rounded-lg p-3">
-                <p className="text-red-600 dark:text-red-400 text-sm">
-                  {error}
-                </p>
+            {/* Employee Info */}
+            {selectedEmployee && (
+              <div className="bg-slate-50 dark:bg-slate-800 rounded-lg p-4">
+                <div className="flex items-center gap-4">
+                  <div className="w-12 h-12 rounded-full bg-gradient-to-br from-indigo-400 to-indigo-600 flex items-center justify-center text-white font-bold text-lg">
+                    {selectedEmployee.name.charAt(0).toUpperCase()}
+                  </div>
+                  <div>
+                    <p className="font-bold text-slate-900 dark:text-white">
+                      {selectedEmployee.name}
+                    </p>
+                    <p className="text-sm text-slate-500 dark:text-slate-400">
+                      {selectedEmployee.email}
+                    </p>
+                    {selectedEmployee.face_enrolled_at && (
+                      <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
+                        Registered:{" "}
+                        {new Date(
+                          selectedEmployee.face_enrolled_at,
+                        ).toLocaleDateString("id-ID")}
+                      </p>
+                    )}
+                  </div>
+                </div>
               </div>
             )}
-            <div className="space-y-2">
-              <Label className="text-slate-700 dark:text-slate-300">
-                Nama Lengkap *
-              </Label>
-              <Input
-                placeholder="John Doe"
-                value={form.name}
-                onChange={(e) => setForm({ ...form, name: e.target.value })}
-                className="bg-slate-50 dark:bg-slate-800 border-slate-300 dark:border-slate-700"
-              />
+
+            {/* Recent Verification Logs */}
+            <div>
+              <h3 className="font-semibold text-slate-900 dark:text-white mb-3">
+                Recent Verification Attempts (Last 10)
+              </h3>
+
+              {isLoadingLogs ? (
+                <div className="text-center py-8">
+                  <div className="inline-block animate-spin rounded-full h-8 w-8 border-4 border-indigo-600 border-t-transparent"></div>
+                  <p className="mt-2 text-sm text-slate-500">Loading logs...</p>
+                </div>
+              ) : verificationLogs.length === 0 ? (
+                <div className="text-center py-8 text-slate-500 dark:text-slate-400">
+                  No verification attempts yet
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  {verificationLogs.map((log) => (
+                    <div
+                      key={log.id}
+                      className={`flex items-center justify-between p-3 rounded-lg border-2 ${
+                        log.is_match
+                          ? "bg-green-50 dark:bg-green-950 border-green-200 dark:border-green-800"
+                          : "bg-red-50 dark:bg-red-950 border-red-200 dark:border-red-800"
+                      }`}
+                    >
+                      <div className="flex items-center gap-3">
+                        {log.is_match ? (
+                          <CheckCircle className="w-5 h-5 text-green-600 dark:text-green-400" />
+                        ) : (
+                          <XCircle className="w-5 h-5 text-red-600 dark:text-red-400" />
+                        )}
+                        <div>
+                          <p
+                            className={`text-sm font-medium ${
+                              log.is_match
+                                ? "text-green-700 dark:text-green-300"
+                                : "text-red-700 dark:text-red-300"
+                            }`}
+                          >
+                            {log.is_match
+                              ? "Verified Successfully"
+                              : "Verification Failed"}
+                          </p>
+                          <p className="text-xs text-slate-500 dark:text-slate-400">
+                            {new Date(log.created_at).toLocaleString("id-ID")}
+                          </p>
+                        </div>
+                      </div>
+                      <Badge
+                        className={
+                          log.is_match
+                            ? "bg-green-600 text-white"
+                            : "bg-red-600 text-white"
+                        }
+                      >
+                        {Math.round(log.similarity_score * 100)}%
+                      </Badge>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
-            <div className="space-y-2">
-              <Label className="text-slate-700 dark:text-slate-300">
-                Email *
-              </Label>
-              <Input
-                type="email"
-                placeholder="john@company.com"
-                value={form.email}
-                onChange={(e) => setForm({ ...form, email: e.target.value })}
-                className="bg-slate-50 dark:bg-slate-800 border-slate-300 dark:border-slate-700"
-              />
-            </div>
-            <div className="space-y-2">
-              <Label className="text-slate-700 dark:text-slate-300">
-                Password *
-              </Label>
-              <Input
-                type="password"
-                placeholder="••••••••"
-                value={form.password}
-                onChange={(e) => setForm({ ...form, password: e.target.value })}
-                className="bg-slate-50 dark:bg-slate-800 border-slate-300 dark:border-slate-700"
-              />
-            </div>
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label className="text-slate-700 dark:text-slate-300">
-                  Departemen
-                </Label>
-                <Input
-                  placeholder="IT, HRD, dll"
-                  value={form.department}
-                  onChange={(e) =>
-                    setForm({ ...form, department: e.target.value })
-                  }
-                  className="bg-slate-50 dark:bg-slate-800 border-slate-300 dark:border-slate-700"
-                />
-              </div>
-              <div className="space-y-2">
-                <Label className="text-slate-700 dark:text-slate-300">
-                  Jabatan
-                </Label>
-                <Input
-                  placeholder="Staff, Manager, dll"
-                  value={form.position}
-                  onChange={(e) =>
-                    setForm({ ...form, position: e.target.value })
-                  }
-                  className="bg-slate-50 dark:bg-slate-800 border-slate-300 dark:border-slate-700"
-                />
-              </div>
-            </div>
+
+            {/* Close Button */}
             <div className="flex gap-3 pt-4">
               <Button
+                type="button"
                 variant="outline"
-                onClick={() => setIsDialogOpen(false)}
-                className="flex-1 border-slate-300 dark:border-slate-700"
+                onClick={() => setIsViewStatsDialogOpen(false)}
+                className="flex-1"
               >
-                Batal
-              </Button>
-              <Button
-                onClick={handleTambah}
-                disabled={isSubmitting}
-                className="flex-1 bg-indigo-600 hover:bg-indigo-700"
-              >
-                {isSubmitting ? "Menyimpan..." : "Simpan"}
+                Tutup
               </Button>
             </div>
           </div>
         </DialogContent>
       </Dialog>
 
-      {/* Dialog Upload Foto Wajah */}
-      <Dialog open={isUploadDialogOpen} onOpenChange={setIsUploadDialogOpen}>
+      {/* Add Employee Dialog */}
+      <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
         <DialogContent className="bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 max-w-md">
           <DialogHeader>
             <DialogTitle className="text-slate-900 dark:text-white">
-              Upload Foto Wajah — {selectedEmployee?.name}
+              Tambah Karyawan Baru
             </DialogTitle>
           </DialogHeader>
+
           <div className="space-y-4 mt-4">
-            {uploadError && (
-              <div className="bg-red-50 dark:bg-red-950 border border-red-200 dark:border-red-800 rounded-lg p-3">
-                <p className="text-red-600 dark:text-red-400 text-sm">
-                  {uploadError}
-                </p>
-              </div>
-            )}
-            {uploadSuccess && (
-              <div className="bg-green-50 dark:bg-green-950 border border-green-200 dark:border-green-800 rounded-lg p-3">
-                <p className="text-green-600 dark:text-green-400 text-sm">
-                  Foto berhasil diupload!
-                </p>
-              </div>
-            )}
-
-            {selectedEmployee?.face_image_url && (
-              <div className="flex justify-center">
-                <img
-                  src={selectedEmployee.face_image_url}
-                  alt="Foto saat ini"
-                  className="w-32 h-32 rounded-full object-cover border-4 border-slate-200 dark:border-slate-700"
-                />
-              </div>
-            )}
-
-            <div className="bg-slate-50 dark:bg-slate-800 rounded-lg p-4 text-sm text-slate-600 dark:text-slate-400 space-y-2">
-              <p className="font-semibold text-slate-900 dark:text-white">
-                📌 Ketentuan foto:
-              </p>
-              <ul className="space-y-1 ml-4">
-                <li>• Format JPG, PNG</li>
-                <li>• Ukuran maksimal 2MB</li>
-                <li>• Wajah terlihat jelas</li>
-                <li>• Pencahayaan cukup</li>
-                <li>• Tidak menggunakan kacamata atau masker</li>
-              </ul>
+            {/* Name */}
+            <div className="space-y-2">
+              <Label className="text-sm font-semibold text-slate-700 dark:text-slate-300">
+                Nama Lengkap *
+              </Label>
+              <Input
+                type="text"
+                value={formData.name}
+                onChange={(e) =>
+                  setFormData({ ...formData, name: e.target.value })
+                }
+                placeholder="John Doe"
+                className="bg-slate-50 dark:bg-slate-800 border-slate-300 dark:border-slate-700"
+              />
             </div>
 
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept="image/*"
-              onChange={handleUploadFace}
-              className="hidden"
-            />
+            {/* Email */}
+            <div className="space-y-2">
+              <Label className="text-sm font-semibold text-slate-700 dark:text-slate-300">
+                Email *
+              </Label>
+              <Input
+                type="email"
+                value={formData.email}
+                onChange={(e) =>
+                  setFormData({ ...formData, email: e.target.value })
+                }
+                placeholder="john@company.com"
+                className="bg-slate-50 dark:bg-slate-800 border-slate-300 dark:border-slate-700"
+              />
+            </div>
 
-            <Button
-              onClick={() => fileInputRef.current?.click()}
-              disabled={isUploading}
-              className="w-full bg-indigo-600 hover:bg-indigo-700"
-            >
-              {isUploading ? (
-                "Mengupload..."
-              ) : (
-                <>
-                  <Camera className="w-4 h-4 mr-2" />
-                  Pilih Foto
-                </>
-              )}
-            </Button>
+            {/* Password */}
+            <div className="space-y-2">
+              <Label className="text-sm font-semibold text-slate-700 dark:text-slate-300">
+                Password *
+              </Label>
+              <Input
+                type="password"
+                value={formData.password}
+                onChange={(e) =>
+                  setFormData({ ...formData, password: e.target.value })
+                }
+                placeholder="Min. 6 karakter"
+                className="bg-slate-50 dark:bg-slate-800 border-slate-300 dark:border-slate-700"
+              />
+            </div>
 
-            <Button
-              variant="outline"
-              onClick={() => setIsUploadDialogOpen(false)}
-              className="w-full border-slate-300 dark:border-slate-700"
-            >
-              Tutup
-            </Button>
+            {/* Department */}
+            <div className="space-y-2">
+              <Label className="text-sm font-semibold text-slate-700 dark:text-slate-300">
+                Department
+              </Label>
+              <Input
+                type="text"
+                value={formData.department}
+                onChange={(e) =>
+                  setFormData({ ...formData, department: e.target.value })
+                }
+                placeholder="IT, HR, Sales, etc."
+                className="bg-slate-50 dark:bg-slate-800 border-slate-300 dark:border-slate-700"
+              />
+            </div>
+
+            {/* Position */}
+            <div className="space-y-2">
+              <Label className="text-sm font-semibold text-slate-700 dark:text-slate-300">
+                Position/Jabatan
+              </Label>
+              <Input
+                type="text"
+                value={formData.position}
+                onChange={(e) =>
+                  setFormData({ ...formData, position: e.target.value })
+                }
+                placeholder="Staff, Manager, etc."
+                className="bg-slate-50 dark:bg-slate-800 border-slate-300 dark:border-slate-700"
+              />
+            </div>
+
+            {/* Info Note */}
+            <div className="bg-blue-50 dark:bg-blue-950 border-2 border-blue-200 dark:border-blue-800 rounded-lg p-3">
+              <p className="text-xs text-blue-700 dark:text-blue-300">
+                ℹ️ Setelah karyawan dibuat, mereka perlu{" "}
+                <strong>mendaftar wajah sendiri</strong> melalui Mobile App
+                untuk dapat menggunakan face recognition saat absen.
+              </p>
+            </div>
+
+            {/* Actions */}
+            <div className="flex gap-3 pt-4">
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => {
+                  setIsDialogOpen(false);
+                  setFormData({
+                    name: "",
+                    email: "",
+                    password: "",
+                    department: "",
+                    position: "",
+                  });
+                }}
+                className="flex-1"
+              >
+                Batal
+              </Button>
+              <Button
+                type="button"
+                onClick={handleSave}
+                className="flex-1 bg-indigo-600 hover:bg-indigo-700"
+              >
+                Simpan
+              </Button>
+            </div>
           </div>
         </DialogContent>
       </Dialog>
