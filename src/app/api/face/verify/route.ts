@@ -133,12 +133,11 @@ export async function POST(request: Request) {
         message: `Wajah tidak cocok. Similarity: ${Math.round(similarity * 100)}% (minimal ${SIMILARITY_THRESHOLD * 100}%)`,
       });
     }
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error("Face verification error:", error);
-    return NextResponse.json(
-      { error: error.message || "Face verification failed" },
-      { status: 500 },
-    );
+    const message =
+      error instanceof Error ? error.message : "Face verification failed";
+    return NextResponse.json({ error: message }, { status: 500 });
   }
 }
 
@@ -205,17 +204,17 @@ function calculateCosineSimilarity(
 // ALTERNATIVE: Euclidean Distance
 // Lower distance = more similar
 // ============================================
-function calculateEuclideanDistance(
-  vectorA: number[],
-  vectorB: number[],
-): number {
-  let sum = 0;
-  for (let i = 0; i < vectorA.length; i++) {
-    const diff = vectorA[i] - vectorB[i];
-    sum += diff * diff;
-  }
-  return Math.sqrt(sum);
-}
+// function calculateEuclideanDistance(
+//   vectorA: number[],
+//   vectorB: number[],
+// ): number {
+//   let sum = 0;
+//   for (let i = 0; i < vectorA.length; i++) {
+//     const diff = vectorA[i] - vectorB[i];
+//     sum += diff * diff;
+//   }
+//   return Math.sqrt(sum);
+// }
 
 // Usage:
 // const distance = calculateEuclideanDistance(embeddingA, embeddingB);

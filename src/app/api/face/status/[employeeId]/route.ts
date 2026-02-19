@@ -6,10 +6,10 @@ import { NextResponse } from "next/server";
 
 export async function GET(
   request: Request,
-  { params }: { params: { employeeId: string } },
+  { params }: { params: Promise<{ employeeId: string }> },
 ) {
   try {
-    const { employeeId } = params;
+    const { employeeId } = await params;
 
     if (!employeeId) {
       return NextResponse.json(
@@ -38,11 +38,10 @@ export async function GET(
       isEnrolled: employee.is_face_enrolled || false,
       enrolledAt: employee.face_enrolled_at,
     });
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error("Check enrollment error:", error);
-    return NextResponse.json(
-      { error: error.message || "Failed to check enrollment" },
-      { status: 500 },
-    );
+    const message =
+      error instanceof Error ? error.message : "Failed to check enrollment";
+    return NextResponse.json({ error: message }, { status: 500 });
   }
 }

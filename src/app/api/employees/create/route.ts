@@ -33,10 +33,9 @@ export async function POST(req: NextRequest) {
     if (empError) throw empError;
 
     return NextResponse.json({ success: true });
-  } catch (e: any) {
-    return NextResponse.json(
-      { success: false, message: e.message },
-      { status: 400 },
-    );
+  } catch (e: unknown) {
+    const message =
+      e instanceof Error ? e.message : "Failed to create employee";
+    return NextResponse.json({ success: false, message }, { status: 400 });
   }
 }

@@ -89,12 +89,11 @@ export async function POST(request: Request) {
       faceToken: faceToken,
       faceRectangle: faceRectangle,
     });
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error("Face enrollment error:", error);
-    return NextResponse.json(
-      { error: error.message || "Face enrollment failed" },
-      { status: 500 },
-    );
+    const message =
+      error instanceof Error ? error.message : "Face enrollment failed";
+    return NextResponse.json({ error: message }, { status: 500 });
   }
 }
 
