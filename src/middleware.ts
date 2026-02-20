@@ -39,9 +39,46 @@ export async function middleware(request: NextRequest) {
     return NextResponse.redirect(new URL("/dashboard", request.url));
   }
 
+  // ============================================
+  // ROLE-BASED ACCESS CONTROL
+  // ============================================
+
+  // Define admin-only routes
+  const adminOnlyRoutes = [
+    "/dashboard/karyawan",
+    "/dashboard/absensi",
+    "/dashboard/shift",
+    "/dashboard/cuti",
+    "/dashboard/laporan",
+    "/dashboard/pengaturan",
+  ];
+
+  const isAdminOnlyRoute = adminOnlyRoutes.some((route) =>
+    request.nextUrl.pathname.startsWith(route),
+  );
+
+  // Check role for admin routes
+  if (user && isAdminOnlyRoute) {
+    const { data: employee } = await supabase
+      .from("employees")
+      .select("role")
+      .eq("user_id", user.id)
+      .single();
+
+    // Redirect non-admin to dashboard with error
+    if (!employee || employee.role !== "admin") {
+      console.log(
+        `🚫 Access denied: ${request.nextUrl.pathname} (role: ${employee?.role})`,
+      );
+      return NextResponse.redirect(
+        new URL("/dashboard?error=admin-only", request.url),
+      );
+    }
+  }
+
   return supabaseResponse;
 }
 
 export const config = {
-  matcher: ["/((?!_next/static|_next/image|favicon.ico).*)"],
+  matcher: ["/((?!_next/static|_next/image|favicon.ico|api).*)"],
 };
